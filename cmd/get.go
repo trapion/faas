@@ -43,7 +43,7 @@ func parse(s string) (string, []string, error) {
 		switch each {
 		case "string":
 			args = append(args, fmt.Sprintf("a%d", i))
-		case "int":
+		case "int", "int64":
 			args = append(args, fmt.Sprintf("strconv.FormatInt(int64(a%d), 10)", i))
 		default:
 			panic("type " + each + " not supported yet")
