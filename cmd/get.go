@@ -15,30 +15,56 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
-	"regexp"
 	"strings"
+	"text/scanner"
 	"text/template"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
 	"github.com/spf13/cobra"
 )
 
-func parse(s string) (string, []string, error) {
-	exp := `\(\s*(\w+)(\s*,\s*\w+)*\s*\)\s*(\w+)?`
-	re, err := regexp.Compile(exp)
-	if err != nil {
-		return "", nil, err
+func parse(src string) (string, []string, error) {
+	var s scanner.Scanner
+	s.Init(strings.NewReader(src))
+	var tok rune
+
+	types := []string{}
+	ret := ""
+	for tok != scanner.EOF {
+		tok = s.Scan()
+		logrus.Debugf("token: %s", s.TokenText())
+		if s.TokenText() == "(" {
+			tok = s.Scan()
+			logrus.Debugf("token: %s", s.TokenText())
+			for s.TokenText() != ")" {
+				if tok != scanner.Ident {
+					return "", nil, errors.New("Ident expected")
+				}
+				types = append(types, s.TokenText())
+				logrus.Debugf("types: %s", types)
+				tok = s.Scan()
+				logrus.Debugf("token: %s", s.TokenText())
+				if s.TokenText() != "," && s.TokenText() != ")" {
+					return "", nil, errors.New(", or ) expected")
+				}
+				if s.TokenText() == ")" {
+					break
+				}
+				tok = s.Scan()
+			}
+			tok = s.Scan()
+			ret = s.TokenText()
+		}
 	}
-	result := re.FindStringSubmatch(s)
 
 	all := []string{}
 	args := []string{}
-	le := len(result[1:])
-	for i, each := range result[1:le] {
-		each = strings.TrimLeft(each, ", ")
+	for i, each := range types {
 		all = append(all, fmt.Sprintf("a%d %s", i, each))
 		switch each {
 		case "string":
@@ -49,8 +75,6 @@ func parse(s string) (string, []string, error) {
 			panic("type " + each + " not supported yet")
 		}
 	}
-
-	ret := result[le]
 
 	return fmt.Sprintf("(%s) %s", strings.Join(all, ", "), ret), args, nil
 }
@@ -92,6 +116,7 @@ See 'faas get --help'.
 			cmd.Printf("Found signature: %q ...\n", signature)
 
 			signature, args, _ := parse(signature)
+			logrus.Debugf("signature: %s", signature)
 			dir := path.Join(os.Getenv("GOPATH"), "src", path.Dir(image))
 			os.MkdirAll(dir, 0755)
 			content := `
@@ -168,6 +193,10 @@ Then, for example, you can call:
 }
 
 func init() {
+	if os.Getenv("DEBUG") == "1" {
+		logrus.SetLevel(logrus.DebugLevel)
+	}
+
 	RootCmd.AddCommand(getCmd)
 
 	// Here you will define your flags and configuration settings.
